@@ -1,6 +1,6 @@
 <?php
 
-namespace RestApi;
+namespace Malhal\RestApi;
 
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;

@@ -1,12 +1,5 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: mh
- * Date: 21/08/2016
- * Time: 14:50
- */
-
-namespace RestApi;
+namespace Malhal\RestApi;
 
 use App\Exceptions\Handler;
 use App\Exceptions\RestApiHandler;
