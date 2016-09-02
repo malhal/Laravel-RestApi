@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Exceptions;
+namespace RestApi;
 
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -11,7 +11,7 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\Debug\Exception\FlattenException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
-class RestApiHandler extends Handler
+class RestApiHandler extends \App\Exceptions\Handler
 {
 
     /**

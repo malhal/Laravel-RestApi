@@ -6,11 +6,10 @@
  * Time: 14:50
  */
 
-namespace App\Http\Controllers;
+namespace RestApi;
 
 use App\Exceptions\Handler;
 use App\Exceptions\RestApiHandler;
-use App\Venue;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +21,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-class RestApiController extends Controller
+class RestApiController extends \App\Http\Controllers\BaseController
 {
 
     public function __construct()
