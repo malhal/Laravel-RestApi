@@ -1,8 +1,16 @@
 <?php
-namespace Malhal\RestApi;
+/**
+ *  Laravel-CreatedBy (http://github.com/malhal/Laravel-CreatedBy)
+ *  RestApiController.php
+ *
+ *  Created by Malcolm Hall on 2/9/2016.
+ *  Copyright © 2016 Malcolm Hall. All rights reserved.
+ */
+
+namespace App;
 
 use App\Exceptions\Handler;
-use App\Exceptions\RestApiHandler;
+use App\Http\Controllers\Controller;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +22,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-class RestApiController extends \App\Http\Controllers\BaseController
+class RestApiController extends Controller
 {
 
     public function __construct()
