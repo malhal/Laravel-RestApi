@@ -1,14 +1,18 @@
 <?php
+/**
+ *  Laravel-RestApi (http://github.com/malhal/Laravel-RestApi)
+ *  RestApiController.php
+ *
+ *  Created by Malcolm Hall on 2/9/2016.
+ *  Copyright © 2016 Malcolm Hall. All rights reserved.
+ */
 
-namespace App;
+namespace Malhal\RestApi;
 
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
-use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\QueryException;
-use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\Debug\Exception\FlattenException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class RestApiHandler extends \App\Exceptions\Handler
