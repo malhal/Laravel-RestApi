@@ -1,5 +1,5 @@
 {
-    "name": "malhal/restapi",
+    "name": "malhal/laravel-restapi",
     "description": "A controller and handler that lets you easily build a REST API",
     "keywords": ["laravel", "framework", "rest", "api", "controller", "Laravel RestApi", "Laravel-RestApi", "Malcolm Hall", "malhal"],
     "license": "MIT",
