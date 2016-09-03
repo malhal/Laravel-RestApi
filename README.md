@@ -1,7 +1,11 @@
 # Laravel-RestApi
 A controller and handler that lets you easily build a REST API in Laravel with proper exception handling.
 
-First in your model you want to use be sure to add a $fillable param with all the fields you would like to populate via the API methods.
+First in your model you want to use be sure to add a $fillable param with all the fields you would like to populate via the API methods, e.g.
+
+    protected $fillable = ['name', 'formattedAddress', 'latitude', 'longitude'];
+
+Note this is important because it is also used to hide these fields from output when not needed. E.g. when a record is created we do not want to send the data back down to client. It would be much more complicated to reflect these fields from the database so we simply make use of this property.
 
 Then, make a controller subclass of RestApiController, e.g. VenueController:
 
