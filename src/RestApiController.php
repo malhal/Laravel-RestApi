@@ -9,13 +9,17 @@
 
 namespace Malhal\RestApi;
 
-use App\Http\Controllers\Controller;
+use Illuminate\Foundation\Bus\DispatchesJobs;
+use Illuminate\Routing\Controller as BaseController;
+use Illuminate\Foundation\Validation\ValidatesRequests;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class RestApiController extends Controller
+class RestApiController extends BaseController
 {
+    use AuthorizesRequests, DispatchesJobs, ValidatesRequests;
 
     public function __construct()
     {
@@ -73,7 +77,8 @@ class RestApiController extends Controller
      */
     public function show($id)
     {
-        return $this->newModel()->findOrFail($id);
+        $model = $this->newModel()->findOrFail($id);
+        return $model;
     }
 
     /**
@@ -120,7 +125,6 @@ class RestApiController extends Controller
             // clear all attributes
             foreach($model->getFillable() as $fillable){
                 $model->$fillable = null;
-
             }
         }
 
@@ -178,6 +182,7 @@ class RestApiController extends Controller
         foreach ($requestArrays as $key => $value) {
             $rules['requests.'.$key.'.method'] = 'required|in:POST,PUT,PATCH';
             $rules['requests.'.$key.'.body'] = 'required|array';
+            $rules['requests.'.$key.'.path'] = 'required';
         }
 
         $this->validateJson($request, $rules);
@@ -193,7 +198,7 @@ class RestApiController extends Controller
             $request->replace($requestArray['body']);
 
             // create a request to dispatch
-            $req = $request->create($requestArray['url'], $requestArray['method']);
+            $req = $request->create($requestArray['path'], $requestArray['method']);
 
             $response = \Route::dispatch($req);
 
@@ -213,13 +218,13 @@ class RestApiController extends Controller
                     }
                 */
                 DB::rollBack();
-                break;
+                return response(['responses' => $responses], Response::HTTP_BAD_REQUEST);
             }
         }
 
         DB::commit();
 
-        return ['responses' => $responses];
+        return response(['responses' => $responses]);
 
     }
 }
