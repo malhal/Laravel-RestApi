@@ -28,25 +28,14 @@ trait UrlSafeBase64UuidForKey
     public static function bootUrlSafeBase64UuidForKey()
     {
         static::creating(function ($model) {
-            $model->setAttribute($model->getKeyName(), $model->newUuid());
+            $uuid = rtrim(strtr(base64_encode(Uuid::uuid4()->getBytes()), '+/', '-_'), '='); // e.g. 3V_4npGbQEKzMNJyGxGEpw
+            $model->setAttribute($model->getKeyName(), $uuid);
         });
     }
 
     // disables laravel trying to use getLastInsertID.
     public function getIncrementing(){
         return false;
-    }
-
-    // returns a UUID encoded in base64 made url safe by replacing '+' with '/', and '_' with '-', and '=' removed.
-    public static function urlSafeBase64Uuid(){
-        $hex = Uuid::uuid4()->getHex();
-        $bin = pack('H*', $hex);
-        $encoded = rtrim(strtr(base64_encode($bin), '+/', '-_'), '=');
-        return $encoded;
-    }
-
-    protected function newUuid(){
-        return static::urlSafeBase64Uuid();
     }
 
 }

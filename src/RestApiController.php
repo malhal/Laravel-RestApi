@@ -9,10 +9,12 @@
 
 namespace Malhal\RestApi;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,12 +23,21 @@ class RestApiController extends BaseController
 {
     use AuthorizesRequests, DispatchesJobs, ValidatesRequests;
 
+    protected $authorize;
+
     public function __construct()
     {
         \App::singleton(
             \Illuminate\Contracts\Debug\ExceptionHandler::class,
             RestApiHandler::class
         );
+
+
+        // if we came through a guard then we will have a user or it will have already exceptioned.
+
+//        if (!Auth::guard('api')->user() && !is_null(Auth::guard('api')->getTokenForRequest())) {
+//            throw new UnauthorizedException('Invalid token');
+//        }
     }
 
     protected function newModel(){
@@ -64,6 +75,10 @@ class RestApiController extends BaseController
     }
 
     protected function createModel(Request $request, $model){
+        if($this->authorize){
+            $this->authorize('create', $model);
+        }
+
         $model->fill($request->json()->all());
         $model->save();
         return response($model->makeHidden($model->getFillable()), Response::HTTP_CREATED);
@@ -77,8 +92,11 @@ class RestApiController extends BaseController
      */
     public function show($id)
     {
-        $model = $this->newModel()->findOrFail($id);
-        return $model;
+        $model = $this->newModel();
+        if($this->authorize){
+            $this->authorize('show', $model);
+        }
+        return $model->findOrFail($id);
     }
 
     /**
@@ -105,22 +123,29 @@ class RestApiController extends BaseController
     {
         return DB::transaction(function () use ($request, $id) {
             $newModel = $this->newModel();
-            $model = $newModel->newQuery()->find($id);
-
-            // the resource does not already need to exist for it to be replaced.
-            if(is_null($model)){
-                $model = $newModel;
-                $keyName = $model->getKeyName();
-                $model->$keyName = $id;
-                return $this->createModel($request, $model);
+            $query = $newModel->newQuery();
+            if($request->method() == Request::METHOD_PUT) {
+                $model = $query->find($id);
+                // the resource does not already need to exist for it to be replaced.
+                if(is_null($model)){
+                    $model = $newModel;
+                    $keyName = $model->getKeyName();
+                    $model->$keyName = $id;
+                    return $this->createModel($request, $model);
+                }
+            }else{
+                $model = $query->findOrFail($id);
             }
-
             return $this->updateModel($request, $model);
         });
     }
 
     protected function updateModel(Request $request, $model)
     {
+        if($this->authorize){
+            $this->authorize('update', $model);
+        }
+
         if ($request->method() == Request::METHOD_PUT) {
             // clear all attributes
             foreach($model->getFillable() as $fillable){

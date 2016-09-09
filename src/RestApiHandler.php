@@ -11,9 +11,11 @@ namespace Malhal\RestApi;
 
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class RestApiHandler extends \App\Exceptions\Handler
 {
@@ -55,6 +57,9 @@ class RestApiHandler extends \App\Exceptions\Handler
                 $error['driverCode'] = $exception->errorInfo[1];
                 $message = $exception->errorInfo[2];
             }
+        }
+        else if($exception instanceof ModelNotFoundException){
+            $statusCode = 404;
         }
         else if($exception instanceof AuthorizationException){
             $statusCode = 403;
