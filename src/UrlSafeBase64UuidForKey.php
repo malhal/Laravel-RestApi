@@ -28,6 +28,10 @@ trait UrlSafeBase64UuidForKey
     public static function bootUrlSafeBase64UuidForKey()
     {
         static::creating(function ($model) {
+            // skip if already has a key set.
+            if(!is_null($model->getKey())){
+                return;
+            }
             $uuid = rtrim(strtr(base64_encode(Uuid::uuid4()->getBytes()), '+/', '-_'), '='); // e.g. 3V_4npGbQEKzMNJyGxGEpw
             $model->setAttribute($model->getKeyName(), $uuid);
         });

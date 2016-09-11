@@ -11,8 +11,11 @@ namespace Malhal\RestApi;
 
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\Response;
+use Illuminate\Validation\UnauthorizedException;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -63,7 +66,14 @@ class RestApiHandler extends \App\Exceptions\Handler
         }
         else if($exception instanceof AuthorizationException){
             $statusCode = 403;
-        }else{
+        }
+        else if($exception instanceof AuthenticationException){
+            $statusCode = 401;
+        }
+        else if($exception instanceof FailedDependencyException){
+            $statusCode = Response::HTTP_FAILED_DEPENDENCY;
+        }
+        else{
             $statusCode = 500;
         }
         // only add the reason if there is one.

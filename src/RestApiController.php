@@ -10,6 +10,7 @@
 namespace Malhal\RestApi;
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Foundation\Validation\ValidatesRequests;
@@ -17,7 +18,11 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Validation\UnauthorizedException;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class RestApiController extends BaseController
 {
@@ -32,12 +37,7 @@ class RestApiController extends BaseController
             RestApiHandler::class
         );
 
-
-        // if we came through a guard then we will have a user or it will have already exceptioned.
-
-//        if (!Auth::guard('api')->user() && !is_null(Auth::guard('api')->getTokenForRequest())) {
-//            throw new UnauthorizedException('Invalid token');
-//        }
+        $this->middleware(VerifyApiToken::class);
     }
 
     protected function newModel(){
@@ -122,35 +122,40 @@ class RestApiController extends BaseController
     public function update(Request $request, $id)
     {
         return DB::transaction(function () use ($request, $id) {
+
             $newModel = $this->newModel();
             $query = $newModel->newQuery();
-            if($request->method() == Request::METHOD_PUT) {
-                $model = $query->find($id);
-                // the resource does not already need to exist for it to be replaced.
-                if(is_null($model)){
-                    $model = $newModel;
-                    $keyName = $model->getKeyName();
-                    $model->$keyName = $id;
-                    return $this->createModel($request, $model);
-                }
-            }else{
+
+            if($request->method() == Request::METHOD_PATCH) {
                 $model = $query->findOrFail($id);
+                return $this->updateModel($request, $model);
             }
-            return $this->updateModel($request, $model);
+
+            // PUT
+            $model = $query->find($id);
+
+            if(is_null($model)){
+                $model = $newModel;
+                $model->setAttribute($model->getKeyName(), $id);
+                return $this->createModel($request, $model);
+            }
+
+            return $this->replaceModel($request, $model);
         });
+    }
+
+    protected function replaceModel(Request $request, $model){
+        // clear all attributes
+        foreach($model->getFillable() as $fillable){
+            $model->$fillable = null;
+        }
+        return $this->updateModel($request, $model);
     }
 
     protected function updateModel(Request $request, $model)
     {
         if($this->authorize){
             $this->authorize('update', $model);
-        }
-
-        if ($request->method() == Request::METHOD_PUT) {
-            // clear all attributes
-            foreach($model->getFillable() as $fillable){
-                $model->$fillable = null;
-            }
         }
 
         $model->fill($request->json()->all());
@@ -214,24 +219,36 @@ class RestApiController extends BaseController
 
         $responses = array();
 
-        DB::beginTransaction();
+        if($atomic) {
+            DB::beginTransaction();
+        }
 
         foreach ($requestArrays as $i => $requestArray) {
 
             // replace what the bound request and facade use
             $request->setMethod($requestArray['method']);
             $request->replace($requestArray['body']);
-
+            $path = dirname($request->path()).'/'.$requestArray['path'];
             // create a request to dispatch
-            $req = $request->create($requestArray['path'], $requestArray['method']);
+            $req = $request->create($path, $requestArray['method']);
 
-            $response = \Route::dispatch($req);
+            try {
+                $response = \Route::dispatch($req);
+            }catch(NotFoundHttpException $e){
+                $response = resolve(ExceptionHandler::class)->render($req, $e);
+            }
 
-            $responseArray = ['body' => json_decode($response->getContent()), 'status' => $response->getStatusCode()];
+            $responseDict = ['body' => json_decode($response->getContent()), 'status' => $response->getStatusCode()];
 
-            $responses[] = $responseArray;
+            $responses[] = $responseDict;
 
             if(!$response->isSuccessful() && $atomic){
+                $failedDependencyException = new FailedDependencyException('Skipped because atomic operation failed');
+                $response = resolve(ExceptionHandler::class)->render($req, $failedDependencyException);
+
+                for($j=$i+1; $j < count($requestArrays); $j++){
+                    $responses[] = ['body' => json_decode($response->getContent()), 'status' => $response->getStatusCode()];;
+                }
                 /*
                     $status = Response::HTTP_FAILED_DEPENDENCY;
                     $reason = Response::$statusTexts[$status];
@@ -239,7 +256,7 @@ class RestApiController extends BaseController
 
                     for($j=$i+1; $j < count($requestArrays); $j++){
                         $responses[] = ['status' => $status,
-                            'body' => ['error' => 'DependencyException', 'reason' => 'Skipped because atomic operation failed']];
+                            'body' => ['error' => 'DependencyException', 'reason' => ]];
                     }
                 */
                 DB::rollBack();
