@@ -11,6 +11,7 @@ namespace Malhal\RestApi;
 
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Foundation\Validation\ValidatesRequests;
@@ -20,26 +21,64 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Validation\UnauthorizedException;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Exception;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 
 class RestApiController extends BaseController
 {
     use AuthorizesRequests, DispatchesJobs, ValidatesRequests;
 
-    protected $authorize;
+    /**
+     * If the requests should be authorized using the Model's policy.
+     *
+     * @var bool
+     */
+    protected $authorize = false;
+
+    /**
+     * The request rules for createModel and replaceModel.
+     *
+     * @var array
+     */
+    protected $createAndReplaceRules = [];
+
+    /**
+     * The request rules for modifyModel.
+     *
+     * @var array
+     */
+    protected $modifyRules = [];
+
+    protected function getCreateRules(){
+        return $this->createAndReplaceRules;
+    }
+
+    protected function getReplaceRules(){
+        return $this->createAndReplaceRules;
+    }
+
+    protected function getModifyRules(){
+        return $this->modifyRules;
+    }
 
     public function __construct()
     {
+        // Switch to our handler that converts exceptions to JSON.
         \App::singleton(
             \Illuminate\Contracts\Debug\ExceptionHandler::class,
             RestApiHandler::class
         );
 
+        // If an api_token was set this exceptions if invalid rather than assuming guest.
         $this->middleware(VerifyApiToken::class);
     }
 
+    /**
+     * The model used for the controller, this default implementation determines the model from name of this controller.
+     *
+     * @var \Illuminate\Database\Eloquent\Model  $model
+     */
     protected function newModel(){
         $className = 'App\\' . substr(class_basename($this), 0, -10);
         return new $className;
@@ -52,7 +91,11 @@ class RestApiController extends BaseController
      */
     public function index(Request $request)
     {
-        return $this->newModel()->get();
+        $model = $this->newModel();
+        if($this->authorize){
+            $this->authorize('read', $model);
+        }
+        return $this->restList($request, $model->newQuery());
     }
 
     /**
@@ -71,17 +114,7 @@ class RestApiController extends BaseController
      */
     public function store(Request $request)
     {
-        return $this->createModel($request, $this->newModel());
-    }
-
-    protected function createModel(Request $request, $model){
-        if($this->authorize){
-            $this->authorize('create', $model);
-        }
-
-        $model->fill($request->json()->all());
-        $model->save();
-        return response($model->makeHidden($model->getFillable()), Response::HTTP_CREATED);
+        return $this->restCreate($request, $this->newModel());
     }
 
     /**
@@ -90,13 +123,13 @@ class RestApiController extends BaseController
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
         $model = $this->newModel();
         if($this->authorize){
-            $this->authorize('show', $model);
+            $this->authorize('read', $model);
         }
-        return $model->findOrFail($id);
+        return $this->restView($request, $model->findOrFail($id));
     }
 
     /**
@@ -124,45 +157,100 @@ class RestApiController extends BaseController
         return DB::transaction(function () use ($request, $id) {
 
             $newModel = $this->newModel();
+            if($this->authorize){
+                try {
+                    $this->authorize('read', $newModel);
+                }catch(AuthorizationException $e){
+                    // Hide the fact they don't have read access since they did a write operation
+                    // Also hide if the model wasn't found for security reasons.
+                    throw new ServiceUnavailableHttpException(null, "Failure updating");
+                }
+            }
             $query = $newModel->newQuery();
 
             if($request->method() == Request::METHOD_PATCH) {
                 $model = $query->findOrFail($id);
-                return $this->updateModel($request, $model);
+                if($this->authorize){
+                    $this->authorize('write', $model);
+                }
+                return $this->restModify($request, $model);
             }
 
             // PUT
             $model = $query->find($id);
 
             if(is_null($model)){
+                if($this->authorize){
+                    $this->authorize('create', $model);
+                }
                 $model = $newModel;
                 $model->setAttribute($model->getKeyName(), $id);
-                return $this->createModel($request, $model);
+                return $this->restCreate($request, $model);
             }
 
-            return $this->replaceModel($request, $model);
+            if($this->authorize){
+                $this->authorize('write', $model);
+            }
+            return $this->restReplace($request, $model);
         });
     }
 
-    protected function replaceModel(Request $request, $model){
-        // clear all attributes
+    protected function restList(Request $request, $query){
+
+        return $query->get();
+    }
+
+    protected function restView(Request $request, $model){
+        return $model;
+    }
+
+    /**
+     * Creates a new model via a POST or PUT when didn't previously exist, replaced param is false
+     * and 'create' auth is checked and 201 returned.
+     * If PUT and did previously exist replace is true and 'update' auth is checked and 200 returned.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @param  bool  $replace
+     * @return \Illuminate\Http\Response
+     */
+    protected function restCreate(Request $request, $model){
+        $this->validateJson($request, $this->getCreateRules());
+
+        $model->fill($request->json()->all());
+        $model->save();
+
+        return response($model->makeHidden($model->getFillable()), Response::HTTP_CREATED);
+    }
+
+    protected function restReplace(Request $request, $model){
+        $this->validateJson($request, $this->getReplaceRules());
+
         foreach($model->getFillable() as $fillable){
             $model->$fillable = null;
         }
-        return $this->updateModel($request, $model);
-    }
 
-    protected function updateModel(Request $request, $model)
-    {
-        if($this->authorize){
-            $this->authorize('update', $model);
-        }
-
-        $model->fill($request->json()->all());
-
-        $model->save();
+        $model->update($request->json()->all());
 
         return response($model->makeHidden($model->getFillable()));
+    }
+
+    protected function restModify(Request $request, $model)
+    {
+
+
+        $this->validateJson($request, $this->getModifyRules());
+
+        $model->update($request->json()->all());
+
+        return response($model->makeHidden($model->getFillable()));
+    }
+
+    protected function restDelete( Request $request, $model){
+        if($this->authorize){
+            $this->authorize('write', $model);
+        }
+        $model->delete();
     }
 
     /**
@@ -171,12 +259,12 @@ class RestApiController extends BaseController
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         DB::transaction(function () use ($id) {
             $model = $this->newModel()->find($id);
             if (!is_null($model)) {
-                $model->delete();
+                $this->restDelete($model);
             }
         });
     }
@@ -234,10 +322,11 @@ class RestApiController extends BaseController
 
             try {
                 $response = \Route::dispatch($req);
-            }catch(NotFoundHttpException $e){
+            }catch(Exception $e){ // MethodNotAllowedHttpException or NotFoundHttpException
                 $response = resolve(ExceptionHandler::class)->render($req, $e);
             }
 
+            // get the response or exception.
             $responseDict = ['body' => json_decode($response->getContent()), 'status' => $response->getStatusCode()];
 
             $responses[] = $responseDict;
@@ -260,13 +349,14 @@ class RestApiController extends BaseController
                     }
                 */
                 DB::rollBack();
-                return response(['responses' => $responses], Response::HTTP_BAD_REQUEST);
+                break;
             }
         }
 
+        // does nothing if no transaction or was rolled back.
         DB::commit();
 
-        return response(['responses' => $responses]);
+        return response(['responses' => $responses], Response::HTTP_MULTI_STATUS);
 
     }
 }
