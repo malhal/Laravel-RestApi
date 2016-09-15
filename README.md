@@ -7,11 +7,11 @@ First in your model you want to use be sure to add a $fillable param with all th
 
 Note this is important because it is also used to hide these fields from output when not needed. E.g. when a record is created we do not want to send the data back down to client. It would be much more complicated to reflect these fields from the database so we simply make use of this property.
 
-Then, make a controller subclass of RestApiController, e.g. VenueController:
+Then, make a controller subclass of RestController, e.g. VenueController:
 
-    use Malhal\RestApi\RestApiController;
+    use Malhal\RestApi\RestController;
     
-    class VenueController extends RestApiController
+    class VenueController extends RestController
     {
     
     }
@@ -26,7 +26,7 @@ Now you can POST to api/venue to create a venue, PUT to replace it, or PATCH to 
 
 As an added bonus, to support batch updates add:
 
-    $this->post('batch', '\Malhal\RestApi\RestApiController@batch');
+    $this->post('batch', '\Malhal\RestApi\RestController@batch');
     
 And post a JSON with a requests array like this:
 
@@ -56,7 +56,7 @@ And set the atomic flag to make it rollback if a request fails.
 
 If you want to add validation then simply override a method and change the query if necessary, e.g.
 
-    class PasswordController extends RestApiController
+    class PasswordController extends RestController
     {
         public function index(Request $request)
         {
@@ -74,7 +74,7 @@ If you want to add validation then simply override a method and change the query
         }
     }
 
-Now if a password is posted and is missing a venue_id then the following error is returned by the RestApiHandler:
+Now if a password is posted and is missing a venue_id then the following error is returned by the RestHandler:
 
     {
       "error": "QueryException",
