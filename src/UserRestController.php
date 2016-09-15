@@ -41,13 +41,15 @@ class UserRestController extends RestController
         $password = $request->json()->get('password');
         if (!is_null($password)) {
             $request->json()->set('password', bcrypt($password));
-            $model->setAttribute('api_token', Str::random(60));
-            $model->makeVisible(['api_token']);
-            Auth::setUser($model);
         }
+        $model->setAttribute('api_token', Str::random(60));
+        $model->makeVisible(['api_token']);
+        Auth::setUser($model);
+
         return parent::restCreate($request, $model);
     }
 
+    // this is the guard used by AuthenticatesUsers
     protected function guard()
     {
         return Auth::guard('web');
@@ -55,7 +57,7 @@ class UserRestController extends RestController
 
     public function username()
     {
-        return $this->newModel()->getKeyName();
+        return $this->newModel()->getKeyName(); // id
     }
 
     // had to reimplement this method to remove the call to session.
@@ -99,6 +101,7 @@ class UserRestController extends RestController
         return $model;
     }
 
+    // Users cannot be queried for security reasons.
     public function index(Request $request)
     {
         $this->missingMethod();
