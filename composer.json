@@ -6,7 +6,7 @@
     "authors": [
         {
             "name": "Malcolm Hall",
-            "email": "malcolmhall@me.com"
+            "email": "composer@malcolmhall.com"
         }
     ],
     "require": {
@@ -30,6 +30,6 @@
             "dev-master": "1.0-dev"
         }
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "prefer-stable": true
 }
