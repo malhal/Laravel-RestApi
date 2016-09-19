@@ -14,28 +14,30 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Str;
-use Symfony\Component\HttpKernel\Exception\HttpException;
-use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
-use Symfony\Component\Routing\Exception\MethodNotAllowedException;
 
+/*
+ * This class is a resource controller that also allows registering in via the create method by hasing the password
+ * and returning the api_token to authenticate future requests.
+ * It also supports logging in via the login method by taking a password param and if matches then includes the api_token
+ * in the response. Add a post route to the login method.
+ */
 class UserRestController extends RestController
 {
-    use AuthenticatesUsers;
-
-    protected $authorizeRequests = true;
-
-    protected $createRules = [
-        //'name' => 'required|max:255',
-        'email' => 'required|email|max:255|unique:users',
-        'password' => 'required|min:6'
-    ];
+    use AuthenticatesUsers; // provides the login method.
 
     public function getModelClass()
     {
         return config('auth.providers.users.model');
     }
 
+    // Users cannot be queried for security reasons.
+    public function index(Request $request)
+    {
+        $this->missingMethod();
+    }
+
+    // for user registration.
     protected function restCreate(Request $request, $model)
     {
         $password = $request->json()->get('password');
@@ -44,7 +46,7 @@ class UserRestController extends RestController
         }
         $model->setAttribute('api_token', Str::random(60));
         $model->makeVisible(['api_token']);
-        Auth::setUser($model);
+        Auth::setUser($model); // log in so that any model events have access to this user.
 
         return parent::restCreate($request, $model);
     }
@@ -55,19 +57,17 @@ class UserRestController extends RestController
         return Auth::guard('web');
     }
 
-    public function username()
-    {
-        return $this->newModel()->getKeyName(); // id
-    }
-
-    // had to reimplement this method to remove the call to session.
+    // had to re-implement this method to remove the call to session.
     protected function sendLoginResponse(Request $request)
     {
         $this->clearLoginAttempts($request);
 
-        Auth::setUser($this->guard()->user());
+        //Auth::setUser($this->guard()->user()); // not needed yet
+
+        return $this->guard()->user()->makeVisible(['api_token']);
     }
 
+    // had to re-implement method from ThrottlesLogins
     protected function sendLockoutResponse(Request $request)
     {
         $seconds = $this->limiter()->availableIn(
@@ -84,26 +84,4 @@ class UserRestController extends RestController
         throw new AuthenticationException(Lang::get('auth.failed'));
     }
 
-    public function show(Request $request, $id)
-    {
-        if($request->has('password')) {
-            // allow userID from route to be used in authentication.
-            $request->query->set($this->newModel()->getKeyName(), $id);
-            $this->login($request);
-        }
-        return parent::show($request, $id);
-    }
-
-    protected function restView(Request $request, $model){
-        if(Auth::user() == $model){
-            $model->makeVisible(['api_token']);
-        }
-        return $model;
-    }
-
-    // Users cannot be queried for security reasons.
-    public function index(Request $request)
-    {
-        $this->missingMethod();
-    }
 }
