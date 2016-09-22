@@ -56,12 +56,17 @@ class RestHandler extends \App\Exceptions\Handler
             }
 
             if($exception->getPrevious() instanceof \PDOException) {
+                //var_export($exception->errorInfo);
                 $error['driverCode'] = $exception->errorInfo[1];
                 $message = $exception->errorInfo[2];
             }
         }
         else if($exception instanceof ModelNotFoundException){
             $statusCode = 404;
+        }
+        else if($exception instanceof DuplicateModelException){
+            $error['duplicate'] = $exception->getModel();
+            $statusCode = 409;
         }
         else if($exception instanceof AuthorizationException){
             $statusCode = 403;

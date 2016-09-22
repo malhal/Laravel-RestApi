@@ -14,12 +14,14 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Bus\DispatchesJobs;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Validation\UnauthorizedException;
 use Symfony\Component\HttpFoundation\Response;
 use Exception;
@@ -136,6 +138,7 @@ class RestController extends BaseController
         if($this->getAuthorizeRequests()){
             $this->authorize('create', $model);
         }
+        $this->validateJson($request, $this->getCreateRules());
         return $this->restCreate($request, $model);
     }
 
@@ -192,9 +195,12 @@ class RestController extends BaseController
 
             if($request->method() == Request::METHOD_PATCH) {
                 $model = $query->findOrFail($id);
-                if($this->getAuthorizeRequests()){
+
+                if($this->getAuthorizeRequests()) {
                     $this->authorize('write', $model);
                 }
+                $this->validateJson($request, $this->getModifyRules());
+
                 return $this->restModify($request, $model);
             }
 
@@ -206,6 +212,7 @@ class RestController extends BaseController
                 if($this->getAuthorizeRequests()){
                     $this->authorize('create', $model);
                 }
+                $this->validateJson($request, $this->getCreateRules());
                 $model->setAttribute($model->getKeyName(), $id);
                 return $this->restCreate($request, $model);
             }
@@ -213,6 +220,7 @@ class RestController extends BaseController
             if($this->getAuthorizeRequests()){
                 $this->authorize('write', $model);
             }
+            $this->validateJson($request, $this->getReplaceRules());
             return $this->restReplace($request, $model);
         });
     }
@@ -237,18 +245,14 @@ class RestController extends BaseController
      * @return \Illuminate\Http\Response
      */
     protected function restCreate(Request $request, $model){
-        $this->validateJson($request, $this->getCreateRules());
-
         $model->fill($request->json()->all());
         $model->save();
         return response($model->makeHidden($model->getFillable()), Response::HTTP_CREATED);
     }
 
     protected function restReplace(Request $request, $model){
-        $this->validateJson($request, $this->getReplaceRules());
-
         foreach($model->getFillable() as $fillable){
-            $model->$fillable = null;
+            $model->setAttribute($fillable, null);
         }
 
         $model->update($request->json()->all());
@@ -257,9 +261,6 @@ class RestController extends BaseController
     }
 
     protected function restModify(Request $request, $model){
-
-        $this->validateJson($request, $this->getModifyRules());
-
         $model->update($request->json()->all());
 
         return response($model->makeHidden($model->getFillable()));
@@ -338,11 +339,34 @@ class RestController extends BaseController
             DB::beginTransaction();
         }
 
+        $chainingRegex = '/^\$(\d*).(\w*)$/';
+
         foreach ($requestArrays as $i => $requestArray) {
 
             // replace what the bound request and facade use
             $request->setMethod($requestArray['method']);
-            $request->replace($requestArray['body']);
+            $body = $requestArray['body'];
+
+            // process chaining, e.g. allows in a second request venue_id : "$0.id" which takes the id from the first response.
+            foreach($body as $key => $value){
+                if(Str::endsWith($key, '_id')){
+                    if(preg_match($chainingRegex, $value, $matches)){
+                        if(count($matches) == 3) {
+                            $prevResponseIndex = $matches[1];
+                            $fieldToChain = $matches[2];
+                            $prevResponse = $responses[$prevResponseIndex];
+                            if (array_has($prevResponse, 'body')) {
+                                $prevBody = $prevResponse['body'];
+                                if (property_exists($prevBody, $fieldToChain)) {
+                                    $body[$key] = $prevBody->$fieldToChain;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            //var_export($body);
+            $request->replace($body);
             $path = dirname($request->path()).'/'.$requestArray['path'];
             // create a request to dispatch
             $req = $request->create($path, $requestArray['method']);
@@ -365,16 +389,6 @@ class RestController extends BaseController
                 for($j=$i+1; $j < count($requestArrays); $j++){
                     $responses[] = ['body' => json_decode($response->getContent()), 'status' => $response->getStatusCode()];;
                 }
-                /*
-                    $status = Response::HTTP_FAILED_DEPENDENCY;
-                    $reason = Response::$statusTexts[$status];
-                    // error the remaining
-
-                    for($j=$i+1; $j < count($requestArrays); $j++){
-                        $responses[] = ['status' => $status,
-                            'body' => ['error' => 'DependencyException', 'reason' => ]];
-                    }
-                */
                 DB::rollBack();
                 break;
             }
