@@ -21,10 +21,8 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\UnauthorizedException;
 use Symfony\Component\HttpFoundation\Response;
-use Exception;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 
@@ -40,7 +38,7 @@ class RestController extends BaseController
     protected $authorizeRequests = false;
 
     /**
-     * The request rules for createModel.
+     * The request rules for createModel. The Model's routeKeyName will be removed automatically.
      *
      * @var array
      */
@@ -62,16 +60,27 @@ class RestController extends BaseController
 
     protected $modelClass;
 
+    protected function removeRouteKeyNameFromArray($array){
+        if(isset($array)) {
+            $routeKeyName = $this->newModel()->getRouteKeyName(); // defaults to 'id'
+            if (array_key_exists($routeKeyName, $array)) {
+                unset($array[$routeKeyName]);
+            }
+        }
+        return $array;
+    }
+
     protected function getCreateRules(){
-        return $this->createRules;
+
+        return $this->removeRouteKeyNameFromArray($this->createRules);
     }
 
     protected function getReplaceRules(){
-        return $this->replaceRules ?: $this->createRules;
+        return $this->removeRouteKeyNameFromArray($this->replaceRules) ?: $this->getCreateRules();
     }
 
     protected function getModifyRules(){
-        return $this->modifyRules;
+        return $this->removeRouteKeyNameFromArray($this->modifyRules);
     }
 
     protected function getModelClass(){
@@ -90,8 +99,21 @@ class RestController extends BaseController
             RestHandler::class
         );
 
-        // If an api_token was set this exceptions if invalid rather than assuming guest.
+        // If an api_token was set this exceptions if it was invalid, rather than assuming guest.
         $this->middleware(VerifyApiToken::class);
+
+        // get the user if it was already set, e.g. a guest user by WorldServiceProvider
+        $user = Auth::user();
+
+        // switch to token guard
+        Auth::shouldUse('api');
+
+        // if we dont have a user and we had one with the previous guard then set the user.
+        if(!Auth::check()){
+            if(!is_null($user)) {
+                Auth::setUser($user);
+            }
+        }
     }
 
     /**
@@ -150,11 +172,13 @@ class RestController extends BaseController
      */
     public function show(Request $request, $id)
     {
+        // todo: move this into a custom model binding middleware.
         $model = $this->newModel();
+
         if($this->getAuthorizeRequests()){
             $this->authorize('read', $model);
         }
-        return $this->restView($request, $model->findOrFail($id));
+        return $this->restView($request, $model->where($model->getRouteKeyName(), $id)->firstOrFail());
     }
 
     /**
@@ -194,7 +218,7 @@ class RestController extends BaseController
             $query = $newModel->newQuery();
 
             if($request->method() == Request::METHOD_PATCH) {
-                $model = $query->findOrFail($id);
+                $model = $query->where($newModel->getRouteKeyName(), $id)->firstOrFail();
 
                 if($this->getAuthorizeRequests()) {
                     $this->authorize('write', $model);
@@ -205,7 +229,7 @@ class RestController extends BaseController
             }
 
             // PUT
-            $model = $query->find($id);
+            $model = $query->where($newModel->getRouteKeyName(), $id)->first();
 
             if(is_null($model)){
                 $model = $newModel;
@@ -213,7 +237,7 @@ class RestController extends BaseController
                     $this->authorize('create', $model);
                 }
                 $this->validateJson($request, $this->getCreateRules());
-                $model->setAttribute($model->getKeyName(), $id);
+                $model->setAttribute($model->getRouteKeyName(), $id);
                 return $this->restCreate($request, $model);
             }
 
@@ -252,6 +276,10 @@ class RestController extends BaseController
 
     protected function restReplace(Request $request, $model){
         foreach($model->getFillable() as $fillable){
+            // prevent nulling the key they used to reference the record.
+            if($fillable == $model->getRouteKeyName()){
+                continue;
+            }
             $model->setAttribute($fillable, null);
         }
 
@@ -282,7 +310,8 @@ class RestController extends BaseController
     public function destroy(Request $request, $id)
     {
         DB::transaction(function () use ($id) {
-            $model = $this->newModel()->find($id);
+            $newModel = $this->newModel();
+            $model = $newModel->where($newModel->getRouteKeyName(), $id)->first();
             if (!is_null($model)) {
                 $this->restDelete($model);
             }
@@ -315,89 +344,5 @@ class RestController extends BaseController
         }
     }
 
-    public function batch(Request $request){
-        $rules = [
-            'requests' => 'required|array',
-            'atomic' => 'boolean'
-        ];
-        $this->validateJson($request, $rules);
 
-        $requestArrays = $request->json('requests');
-        $atomic = $request->json('atomic');
-
-        foreach ($requestArrays as $key => $value) {
-            $rules['requests.'.$key.'.method'] = 'required|in:POST,PUT,PATCH';
-            $rules['requests.'.$key.'.body'] = 'required|array';
-            $rules['requests.'.$key.'.path'] = 'required';
-        }
-
-        $this->validateJson($request, $rules);
-
-        $responses = array();
-
-        if($atomic) {
-            DB::beginTransaction();
-        }
-
-        $chainingRegex = '/^\$(\d*).(\w*)$/';
-
-        foreach ($requestArrays as $i => $requestArray) {
-
-            // replace what the bound request and facade use
-            $request->setMethod($requestArray['method']);
-            $body = $requestArray['body'];
-
-            // process chaining, e.g. allows in a second request venue_id : "$0.id" which takes the id from the first response.
-            foreach($body as $key => $value){
-                if(Str::endsWith($key, '_id')){
-                    if(preg_match($chainingRegex, $value, $matches)){
-                        if(count($matches) == 3) {
-                            $prevResponseIndex = $matches[1];
-                            $fieldToChain = $matches[2];
-                            $prevResponse = $responses[$prevResponseIndex];
-                            if (array_has($prevResponse, 'body')) {
-                                $prevBody = $prevResponse['body'];
-                                if (property_exists($prevBody, $fieldToChain)) {
-                                    $body[$key] = $prevBody->$fieldToChain;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            //var_export($body);
-            $request->replace($body);
-            $path = dirname($request->path()).'/'.$requestArray['path'];
-            // create a request to dispatch
-            $req = $request->create($path, $requestArray['method']);
-
-            try {
-                $response = \Route::dispatch($req);
-            }catch(Exception $e){ // MethodNotAllowedHttpException or NotFoundHttpException
-                $response = resolve(ExceptionHandler::class)->render($req, $e);
-            }
-
-            // get the response or exception.
-            $responseDict = ['body' => json_decode($response->getContent()), 'status' => $response->getStatusCode()];
-
-            $responses[] = $responseDict;
-
-            if(!$response->isSuccessful() && $atomic){
-                $failedDependencyException = new FailedDependencyException('Skipped because atomic operation failed');
-                $response = resolve(ExceptionHandler::class)->render($req, $failedDependencyException);
-
-                for($j=$i+1; $j < count($requestArrays); $j++){
-                    $responses[] = ['body' => json_decode($response->getContent()), 'status' => $response->getStatusCode()];;
-                }
-                DB::rollBack();
-                break;
-            }
-        }
-
-        // does nothing if no transaction or was rolled back.
-        DB::commit();
-
-        return response(['responses' => $responses], Response::HTTP_MULTI_STATUS);
-
-    }
 }

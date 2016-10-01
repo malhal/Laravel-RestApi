@@ -32,7 +32,7 @@ class RestHandler extends \App\Exceptions\Handler
     public function render($request, Exception $exception)
     {
         $error = ['error' => class_basename($exception)];
-        $message = $exception->getMessage();
+        $reason = $exception->getMessage();
         $code = $exception->getCode();
 
         if ($exception instanceof HttpExceptionInterface) {
@@ -46,7 +46,7 @@ class RestHandler extends \App\Exceptions\Handler
             //var_export($exception);
             // hide the sql and bindings if not in debug.
             if(!config('app.debug')) {
-                //$message = $exception->getPrevious()->getMessage();
+                //$reason = $exception->getPrevious()->getMessage();
             }
             if($code == 23000){
                 $statusCode = 409;
@@ -58,7 +58,7 @@ class RestHandler extends \App\Exceptions\Handler
             if($exception->getPrevious() instanceof \PDOException) {
                 //var_export($exception->errorInfo);
                 $error['driverCode'] = $exception->errorInfo[1];
-                $message = $exception->errorInfo[2];
+                $reason = $exception->errorInfo[2];
             }
         }
         else if($exception instanceof ModelNotFoundException){
@@ -81,8 +81,8 @@ class RestHandler extends \App\Exceptions\Handler
             $statusCode = 500;
         }
         // only add the reason if there is one.
-        if(!empty($message)) {
-            $error['reason'] = $message;
+        if(!empty($reason)) {
+            $error['reason'] = $reason;
         }
         if(!empty($code)) {
             $error['code'] = $code;
