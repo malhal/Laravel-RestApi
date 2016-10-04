@@ -35,7 +35,7 @@ class RestController extends BaseController
      *
      * @var bool
      */
-    protected $authorizeRequests = false;
+    protected $authorizeRequests = true;
 
     /**
      * The request rules for createModel. The Model's routeKeyName will be removed automatically.
@@ -156,12 +156,14 @@ class RestController extends BaseController
      */
     public function store(Request $request)
     {
-        $model = $this->newModel();
-        if($this->getAuthorizeRequests()){
-            $this->authorize('create', $model);
-        }
-        $this->validateJson($request, $this->getCreateRules());
-        return $this->restCreate($request, $model);
+        return DB::transaction(function () use ($request) {
+            $model = $this->newModel();
+            if ($this->getAuthorizeRequests()) {
+                $this->authorize('create', $model);
+            }
+            $this->validateJson($request, $this->getCreateRules());
+            return $this->restCreate($request, $model);
+        });
     }
 
     /**
@@ -295,9 +297,7 @@ class RestController extends BaseController
     }
 
     protected function restDelete( Request $request, $model){
-        if($this->getAuthorizeRequests()){
-            $this->authorize('write', $model);
-        }
+
         $model->delete();
     }
 
@@ -309,8 +309,11 @@ class RestController extends BaseController
      */
     public function destroy(Request $request, $id)
     {
-        DB::transaction(function () use ($id) {
-            $newModel = $this->newModel();
+        $newModel = $this->newModel();
+        if($this->getAuthorizeRequests()){
+            $this->authorize('write', $newModel);
+        }
+        DB::transaction(function () use ($id, $newModel) {
             $model = $newModel->where($newModel->getRouteKeyName(), $id)->first();
             if (!is_null($model)) {
                 $this->restDelete($model);
