@@ -52,6 +52,10 @@ class BatchRestController extends RestController
 
             // process chaining, e.g. allows in a second request venue_id : "$0.id" which takes the id from the first response.
             foreach($body as $key => $value){
+                // need to check for null because preg_replace_callback will change a null to an empty string.
+                if(is_null($value)){
+                    continue;
+                }
                 // only work on relation fields
                 /*
                 if(!Str::endsWith($key, '_id')) {
@@ -85,11 +89,12 @@ class BatchRestController extends RestController
                 $body[$key] = preg_replace_callback(
                     '/(\$\(\$(\d*)\.(\w*)\))/', // e.g. $($1.id) means the id from the body response of index 1
                     function ($matches) use ($responses) {
-                        return $responses[$matches[2]]['body']->$matches[3];
+                        return $responses[$matches[2]]['body']->{$matches[3]}; // {} are requried for php 7
                     },
                     $value
                 );
             }
+
             $request->replace($body);
 
             $relativePath = $requestArray['path'];
@@ -98,7 +103,7 @@ class BatchRestController extends RestController
             $relativePath = preg_replace_callback(
                 '/(\$\((\d*)\.(\w*)\))/', // e.g. $($1.id) means the id from the body response of index 1
                 function ($matches) use ($responses) {
-                    return $responses[$matches[2]]['body']->$matches[3];
+                    return $responses[$matches[2]]['body']->{$matches[3]}; // {} are requried for php 7
                 },
                 $relativePath
             );
