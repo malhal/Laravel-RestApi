@@ -117,7 +117,7 @@ class RestController extends BaseController
     }
 
     /**
-     * The model used for the controller, this default implementation determines the model from name of this controller.
+     * The model used for the controller.
      *
      * @var \Illuminate\Database\Eloquent\Model  $model
      */
@@ -180,7 +180,11 @@ class RestController extends BaseController
         if($this->getAuthorizeRequests()){
             $this->authorize('read', $model);
         }
-        return $this->restView($request, $model->where($model->getRouteKeyName(), $id)->firstOrFail());
+        return $this->restView($request, $this->getModelQuery($model, $id)->firstOrFail());
+    }
+
+    protected function getModelQuery($model, $id){
+        return $model->where($model->getRouteKeyName(), $id);
     }
 
     /**
@@ -208,6 +212,8 @@ class RestController extends BaseController
         return DB::transaction(function () use ($request, $id) {
 
             $newModel = $this->newModel();
+            $routeKeyName = $newModel->getRouteKeyName();
+
             if($this->getAuthorizeRequests()){
                 try {
                     $this->authorize('read', $newModel);
@@ -217,10 +223,11 @@ class RestController extends BaseController
                     throw new ServiceUnavailableHttpException(null, "Failure updating");
                 }
             }
-            $query = $newModel->newQuery();
+            //$query = $newModel->newQuery();
+            $modelQuery = $this->getModelQuery($newModel, $id);
 
             if($request->method() == Request::METHOD_PATCH) {
-                $model = $query->where($newModel->getRouteKeyName(), $id)->firstOrFail();
+                $model = $modelQuery->firstOrFail();
 
                 if($this->getAuthorizeRequests()) {
                     $this->authorize('write', $model);
@@ -231,15 +238,23 @@ class RestController extends BaseController
             }
 
             // PUT
-            $model = $query->where($newModel->getRouteKeyName(), $id)->first();
+
+            $model = $modelQuery->first();
 
             if(is_null($model)){
+
                 $model = $newModel;
+
                 if($this->getAuthorizeRequests()){
                     $this->authorize('create', $model);
                 }
                 $this->validateJson($request, $this->getCreateRules());
-                $model->setAttribute($model->getRouteKeyName(), $id);
+
+                // if the route key name is fillable then set it.
+                if(in_array($routeKeyName, $model->getFillable())) {
+                    $model->setAttribute($routeKeyName, $id);
+                }
+
                 return $this->restCreate($request, $model);
             }
 
@@ -247,6 +262,7 @@ class RestController extends BaseController
                 $this->authorize('write', $model);
             }
             $this->validateJson($request, $this->getReplaceRules());
+
             return $this->restReplace($request, $model);
         });
     }

@@ -11,6 +11,7 @@ namespace Malhal\RestApi;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -41,7 +42,7 @@ class BatchRestController extends RestController
             DB::beginTransaction();
         }
 
-        $chainingRegex = '/^\$(\d*).(\w*)$/';
+        //$chainingRegex = '/^\${(\d*)\.(\w*)}$/';
 
         foreach ($requestArrays as $i => $requestArray) {
 
@@ -52,6 +53,7 @@ class BatchRestController extends RestController
             // process chaining, e.g. allows in a second request venue_id : "$0.id" which takes the id from the first response.
             foreach($body as $key => $value){
                 // only work on relation fields
+                /*
                 if(!Str::endsWith($key, '_id')) {
                     continue;
                 }
@@ -79,10 +81,39 @@ class BatchRestController extends RestController
                 if (property_exists($prevBody, $fieldToChain)) {
                     $body[$key] = $prevBody->$fieldToChain;
                 }
+                */
+                $body[$key] = preg_replace_callback(
+                    '/(\$\(\$(\d*)\.(\w*)\))/', // e.g. $($1.id) means the id from the body response of index 1
+                    function ($matches) use ($responses) {
+                        return $responses[$matches[2]]['body']->$matches[3];
+                    },
+                    $value
+                );
             }
-            //var_export($body);
             $request->replace($body);
-            $path = dirname($request->path()).'/'.$requestArray['path'];
+
+            $relativePath = $requestArray['path'];
+
+            // replace any params from previous responses in the batch.
+            $relativePath = preg_replace_callback(
+                '/(\$\((\d*)\.(\w*)\))/', // e.g. $($1.id) means the id from the body response of index 1
+                function ($matches) use ($responses) {
+                    return $responses[$matches[2]]['body']->$matches[3];
+                },
+                $relativePath
+            );
+
+            // replace any params using properties in this body.
+            $relativePath = preg_replace_callback(
+                '/(\$\((\w*)\))/', // e.g. $(password) means use the password property of the body of this request.
+                function ($matches) use ($body) {
+                    return $body[$matches[2]];
+                },
+                $relativePath
+            );
+
+            $path = dirname($request->path()).'/'.$relativePath;
+
             // create a request to dispatch
             $req = $request->create($path, $requestArray['method']);
 
