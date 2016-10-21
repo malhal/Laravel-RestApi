@@ -87,6 +87,10 @@ class RestHandler extends \App\Exceptions\Handler
         if(!empty($code)) {
             $error['code'] = $code;
         }
+
+        if(!config('app.debug')) {
+            $error['trace'] = debug_backtrace(true);
+        }
         return response()->json($error, $statusCode);
     }
 }
