@@ -56,7 +56,7 @@ class RestController extends BaseController
      *
      * @var array
      */
-    protected $modifyRules = [];
+    protected $modifyRules;
 
     protected $modelClass;
 
@@ -80,7 +80,7 @@ class RestController extends BaseController
     }
 
     protected function getModifyRules(){
-        return $this->removeRouteKeyNameFromArray($this->modifyRules);
+        return $this->removeRouteKeyNameFromArray($this->modifyRules) ?: $this->getCreateRules();
     }
 
     protected function getModelClass(){
@@ -180,11 +180,36 @@ class RestController extends BaseController
         if($this->getAuthorizeRequests()){
             $this->authorize('read', $model);
         }
-        return $this->restView($request, $this->getModelQuery($model, $id)->firstOrFail());
+        return $this->restView($request, $this->getModelQuery($model, $id));
+    }
+
+    // allows for an array of route key names and values.
+    protected function getRouteKeyArray($model, $id){
+        $routeKeyName = $model->getRouteKeyName();
+
+        if(!str_contains($routeKeyName, '-')){
+            return [$routeKeyName => $id];
+        }
+
+        $keys = explode('-', $routeKeyName);
+        // first we check for a json array of strings,
+        $values = json_decode($id);
+        if(!is_array($values)){
+            // otherwise a dash seperated array of say integers.
+            // should maybe have a check to prevent misuse of strings and dash seperator.
+            $values = explode('-', $id);
+        }
+
+        $array = array();
+        for($i=0;$i<count($keys);$i++){
+            $array[$keys[$i]] = $values[$i];
+        }
+        return $array;
     }
 
     protected function getModelQuery($model, $id){
-        return $model->where($model->getRouteKeyName(), $id);
+        $array = $this->getRouteKeyArray($model, $id);
+        return $model->where($array);
     }
 
     /**
@@ -224,6 +249,7 @@ class RestController extends BaseController
                 }
             }
             //$query = $newModel->newQuery();
+
             $modelQuery = $this->getModelQuery($newModel, $id);
 
             if($request->method() == Request::METHOD_PATCH) {
@@ -238,8 +264,12 @@ class RestController extends BaseController
             }
 
             // PUT
-
             $model = $modelQuery->first();
+            $routeKeyArray = $this->getRouteKeyArray($newModel, $id);
+            // add the route keys to the json so can pass validation and also allows fill to
+            // set the custom route keys back after all attributes nulled.
+            // it doesnt matter if any keys that are not fillable are added because they will be ignored by fill.
+            //$request->json()->add($routeKeyArray);
 
             if(is_null($model)){
 
@@ -249,12 +279,9 @@ class RestController extends BaseController
                     $this->authorize('create', $model);
                 }
                 $this->validateJson($request, $this->getCreateRules());
-
-                // if the route key name is fillable then set it.
-                if(in_array($routeKeyName, $model->getFillable())) {
-                    $model->setAttribute($routeKeyName, $id);
+                foreach($routeKeyArray as $key => $value){
+                    $model->setAttribute($key, $value);
                 }
-
                 return $this->restCreate($request, $model);
             }
 
@@ -263,6 +290,14 @@ class RestController extends BaseController
             }
             $this->validateJson($request, $this->getReplaceRules());
 
+            // null the record attributes.
+            foreach($model->getFillable() as $fillable){
+                // except the route keys that were used to query for the record.
+                if(array_key_exists($fillable, $routeKeyArray)){
+                    continue;
+                }
+                $model->setAttribute($fillable, null);
+            }
             return $this->restReplace($request, $model);
         });
     }
@@ -272,8 +307,8 @@ class RestController extends BaseController
         return $query->get();
     }
 
-    protected function restView(Request $request, $model){
-        return $model;
+    protected function restView(Request $request, $query){
+        return $query->firstOrFail();
     }
 
     /**
@@ -292,15 +327,8 @@ class RestController extends BaseController
         return response($model->makeHidden($model->getFillable()), Response::HTTP_CREATED);
     }
 
+    // if have any attributes that are not fillable then must be nulled by a subclass method.
     protected function restReplace(Request $request, $model){
-        foreach($model->getFillable() as $fillable){
-            // prevent nulling the key they used to reference the record.
-            if($fillable == $model->getRouteKeyName()){
-                continue;
-            }
-            $model->setAttribute($fillable, null);
-        }
-
         $model->update($request->json()->all());
 
         return response($model->makeHidden($model->getFillable()));

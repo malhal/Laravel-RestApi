@@ -89,7 +89,8 @@ class RestHandler extends \App\Exceptions\Handler
         }
 
         if(config('app.debug')) {
-            $error['trace'] = debug_backtrace(true, 1);
+            //$error['trace'] = debug_backtrace(true, 1);
+            $error['trace'] = $exception->getTrace();
         }
         return response()->json($error, $statusCode);
     }

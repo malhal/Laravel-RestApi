@@ -11,6 +11,8 @@ namespace Malhal\RestApi;
 use Illuminate\Support\Facades\Router;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
+// dynamically sets the route key name from a route_key_name query param.
+// dash is the seperator because its not normally used in database columns.
 trait RouteKeyNameFromQuery
 {
     // Define this in model to denote the allowed natural keys for use in the route.
@@ -31,4 +33,8 @@ trait RouteKeyNameFromQuery
     {
         return property_exists($this, 'validRouteKeyNames') ? $this->validRouteKeyNames : [];
     }
+
+//    public function getRouteKey(){
+//        return json_decode(parent::getRouteKey());
+//    }
 }
