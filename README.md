@@ -1,5 +1,5 @@
 # Laravel-RestApi
-A controller and handler that lets you easily build a REST API in Laravel with proper exception handling.
+A controller and handler that lets you easily build a REST API in Laravel that uses [fine grained CRUD resources](https://www.thoughtworks.com/insights/blog/rest-api-design-resource-modeling). It also provides consistent error responses using Laravel's built-in exception handling.
 
 First in your model you want to use be sure to add a $fillable param with all the fields you would like to populate via the API methods, e.g.
 
